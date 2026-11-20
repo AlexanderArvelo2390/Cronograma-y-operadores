@@ -57,7 +57,7 @@ button.del{color:var(--bad);border-color:var(--bad)}
 <div class="grid">
 <section id="ed"></section>
 <section>
-<div class="bar" style="align-items:center"><label for="fs" style="display:inline;margin:0">Tamaño de letra <b id="fsv"></b></label><input id="fs" type="range" min="12" max="30" step="1" style="width:150px;padding:0"><button class="pri" id="img" type="button" hidden>Guardar imagen</button><button class="pri" id="pdf" type="button" hidden>Guardar PDF</button><span id="nodl" class="mut" hidden>Para descargar la imagen o el PDF, abrí esta página desde claude.ai.</span></div>
+<div class="bar" style="align-items:center"><label for="fs" style="display:inline;margin:0">Tamaño de letra <b id="fsv"></b></label><input id="fs" type="range" min="12" max="30" step="1" style="width:150px;padding:0"><button class="pri" id="img" type="button" >Guardar imagen</button><button class="pri" id="pdf" type="button" >Guardar PDF</button><span id="nodl" class="mut" hidden></span></div>
 <div class="scroll"><div class="sheet" id="rep"></div></div>
 </section>
 </div>
@@ -208,9 +208,26 @@ function snap(){
   }});
 }
 function fname(x){return ((S.tab==="c"?P.tc:P.to).replace(/[^\w\-áéíóúñÁÉÍÓÚÑ ]+/g,"").trim().replace(/\s+/g,"-")||"documento")+"."+x}
+function showOverlay(blob,name,imgs){
+  var url=URL.createObjectURL(blob),isImg=blob.type.indexOf("image")===0;
+  var o=document.createElement("div");
+  o.style.cssText="position:fixed;top:0;left:0;right:0;bottom:0;z-index:2000;background:rgba(0,0,0,.9);overflow:auto;padding:16px;color:#fff;font:15px system-ui,sans-serif";
+  var pv=isImg?'<img alt="Vista previa" src="'+url+'" style="width:100%;background:#fff;display:block">':(imgs||[]).map(function(u){return '<img alt="Página" src="'+u+'" style="width:100%;background:#fff;display:block;margin-bottom:10px">'}).join("");
+  o.innerHTML='<div style="max-width:900px;margin:0 auto"><p style="margin:0 0 10px">'+(isImg?"Tocá Descargar. Si no baja, mantené presionada la imagen y elegí Guardar (en compu: clic derecho, Guardar imagen).":"Tocá Descargar. Si no baja, mantené presionada cada página y elegí Guardar imagen.")+'</p><div style="display:flex;gap:8px;margin-bottom:12px"><a href="'+url+'" download="'+name+'" target="_blank" rel="noopener" style="background:#ffb347;color:#111;padding:8px 14px;border-radius:6px;text-decoration:none;font-weight:600">Descargar</a><button id="ovc" type="button" style="padding:8px 14px;border-radius:6px;border:1px solid #fff;background:transparent;color:#fff;cursor:pointer">Cerrar</button></div>'+pv+'</div>';
+  document.body.appendChild(o);
+  o.querySelector("#ovc").onclick=function(){o.parentNode.removeChild(o);URL.revokeObjectURL(url)};
+}
+function deliver(blob,name,imgs){
+  if(DL)return DL.save({filename:name,data:blob});
+  try{
+    var f=new File([blob],name,{type:blob.type});
+    if(navigator.canShare&&navigator.canShare({files:[f]}))return navigator.share({files:[f],title:name}).catch(function(e){if(!e||e.name!=="AbortError")showOverlay(blob,name,imgs)});
+  }catch(e){}
+  showOverlay(blob,name,imgs);return Promise.resolve();
+}
 function done(e){if(e&&e.code!=="declined")alert("No se pudo guardar el archivo.")}
 $("img").onclick=function(){
-  snap().then(function(c){c.toBlob(function(b){DL.save({filename:fname("png"),data:b}).catch(done)})}).catch(done);
+  snap().then(function(c){c.toBlob(function(b){deliver(b,fname("png")).catch(done)})}).catch(done);
 };
 $("pdf").onclick=function(){
   snap().then(function(c){
@@ -218,7 +235,7 @@ $("pdf").onclick=function(){
     d.setProperties({title:fname("pdf").replace(/\.pdf$/,""),subject:"Cronograma y operadores",keywords:"CO1:"+enc(P)});
     var pw=595.28,ph=841.89,m=32,iw=pw-2*m,sc=iw/c.width,sh=Math.floor((ph-2*m)/sc);
     var br=BR.map(function(v){return Math.round(v*3)}).sort(function(a,b){return a-b});
-    var y=0,pg=0;
+    var y=0,pg=0,imgs=[];
     while(y<c.height){
       var end=Math.min(c.height,y+sh);
       if(end<c.height){var bk=br.filter(function(v){return v>y+sh*0.3&&v<=end}).pop();if(bk)end=bk}
@@ -226,10 +243,10 @@ $("pdf").onclick=function(){
       t.width=c.width;t.height=hh;
       var x=t.getContext("2d");x.fillStyle="#fff";x.fillRect(0,0,t.width,hh);x.drawImage(c,0,y,c.width,hh,0,0,c.width,hh);
       if(pg)d.addPage();
-      d.addImage(t.toDataURL("image/png"),"PNG",m,m,iw,hh*sc);
+      var du=t.toDataURL("image/png");imgs.push(du);d.addImage(du,"PNG",m,m,iw,hh*sc);
       y=end;pg++;
     }
-    return DL.save({filename:fname("pdf"),data:d.output("blob")});
+    return deliver(d.output("blob"),fname("pdf"),imgs);
   }).catch(done);
 };
 function enc(o){return btoa(unescape(encodeURIComponent(JSON.stringify(o))))}
@@ -346,7 +363,7 @@ function initDB(){
   }).catch(function(){});
 }
 applyAll();
-if(window.claude&&claude.use){initDB();claude.use("downloads").then(function(d){if(d){DL=d;$("img").hidden=false;$("pdf").hidden=false}else $("nodl").hidden=false}).catch(function(){$("nodl").hidden=false})}else $("nodl").hidden=false;
+if(window.claude&&claude.use){initDB();claude.use("downloads").then(function(d){if(d)DL=d}).catch(function(){})}
 </script>
 </body>
 </html>
